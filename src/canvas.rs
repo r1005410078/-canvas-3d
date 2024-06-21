@@ -1,12 +1,27 @@
 use crate::Closure;
 use crate::JsValue;
 use once_cell::sync::Lazy;
+use std::ops::DerefMut;
 use std::{cell::RefCell, rc::Rc};
+use wasm_bindgen::Clamped;
 use wasm_bindgen::JsCast;
-use web_sys::console;
 use web_sys::CanvasRenderingContext2d;
+use web_sys::ImageData;
 
 type DrawFn = Rc<RefCell<dyn FnMut() + 'static>>;
+
+pub struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+impl Color {
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Color { r, g, b, a }
+    }
+}
 
 pub type KeyBoard = Rc<RefCell<dyn FnMut(&str) + 'static>>;
 
@@ -32,14 +47,23 @@ pub fn create_offset_canvas() {
 
 pub fn get_content() -> CanvasRenderingContext2d {
     unsafe {
+        let context_options = web_sys::js_sys::Object::new();
+        web_sys::js_sys::Reflect::set(
+            &context_options,
+            &JsValue::from_str("willReadFrequently"),
+            &JsValue::from_bool(true),
+        )
+        .unwrap();
+
         let context = CANVAS
             .clone()
             .unwrap()
-            .get_context("2d")
+            .get_context_with_context_options("2d", &context_options)
             .unwrap()
             .unwrap()
             .dyn_into::<web_sys::CanvasRenderingContext2d>()
             .ok();
+
         context.unwrap()
     }
 }
@@ -109,6 +133,7 @@ impl Canvas {
         *g.borrow_mut() = Some(Closure::new(move || {
             // Set the body's text content to how many times this
             draw.borrow_mut()();
+
             unsafe {
                 context
                     .draw_image_with_html_canvas_element(CANVAS.as_ref().unwrap(), 0.0, 0.0)
@@ -132,41 +157,47 @@ pub fn request_animation_frame(f: &Closure<dyn FnMut()>) {
         .expect("should register `requestAnimationFrame` OK");
 }
 
+pub fn get_image_data() -> web_sys::ImageData {
+    let ctx = get_content();
+    let image_data = ctx.get_image_data(0.0, 0.0, 600.0, 800.0).unwrap();
+    image_data
+}
+
+pub fn set_image_data(data: Vec<u8>) {
+    let ctx = get_content();
+    let image_data = ImageData::new_with_u8_clamped_array_and_sh(Clamped(&data), 600, 800).unwrap();
+    ctx.put_image_data(&image_data, 0.0, 0.0).unwrap();
+}
+
 pub fn clear() {
-    let content = get_content();
-    content.clear_rect(0.0, 0.0, 600.0, 800.0);
+    let image_data = get_image_data();
+    let mut data = image_data.data();
+    for i in (0..data.len()).step_by(4) {
+        data[i] = 0;
+        data[i + 1] = 0;
+        data[i + 2] = 0;
+        data[i + 3] = 0;
+    }
+    // set_image_data(data);
 }
 
-pub fn fill(color: &str) {
-    let ctx = get_content();
-    ctx.set_fill_style(&JsValue::from_str(color));
-    ctx.fill();
+pub fn rect(x: usize, y: usize, w: usize, h: usize, color: &Color) {
+    let image_data = get_image_data();
+    let mut data = image_data.data();
+    let data = data.deref_mut();
+    for i in (0..h).step_by(4) {
+        for j in (0..w).step_by(4) {
+            draw_pixel_by_vec(x + j, y + i, color, data);
+        }
+    }
+
+    set_image_data(data.clone());
 }
 
-pub fn stroke(color: &str) {
-    let ctx = get_content();
-    ctx.set_stroke_style(&JsValue::from_str(color));
-    ctx.set_line_width(1.0);
-    ctx.stroke();
-}
-
-pub fn rect(x: f64, y: f64, w: f64, h: f64) {
-    let ctx = get_content();
-    ctx.begin_path();
-    ctx.rect(x, y, w, h);
-}
-
-pub fn circle(x: f64, y: f64, radius: f64) {
-    let ctx = get_content();
-    ctx.begin_path();
-    ctx.arc(x, y, radius, 0.0, 2.0 * std::f64::consts::PI)
-        .unwrap();
-}
-
-pub fn line(x1: f64, y1: f64, x2: f64, y2: f64) {
-    let ctx = get_content();
-    ctx.begin_path();
-    ctx.move_to(x1, y1);
-    ctx.line_to(x2, y2);
-    ctx.stroke();
+pub fn draw_pixel_by_vec(x: usize, y: usize, color: &Color, data: &mut Vec<u8>) {
+    let i: usize = y * 600 + x;
+    data[i] = color.r;
+    data[i + 1] = color.g;
+    data[i + 2] = color.b;
+    data[i + 3] = color.a;
 }

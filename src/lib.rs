@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use canvas::Canvas;
+use canvas::{rect, Canvas};
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 
@@ -12,8 +12,7 @@ fn update() {
 
 fn render() {
     update();
-
-    // console::log_1(&JsValue::from_str("render"));
+    rect(0, 0, 300, 160, &canvas::Color::new(229, 37, 37, 255));
 }
 
 // This is like the `main` function, except for JavaScript.
